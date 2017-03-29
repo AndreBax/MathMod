@@ -123,3 +123,86 @@ my.spearman(iris$Sepal.Length,iris$Petal.Length)
 ## переменную DOY - день года (1 января - DOY = 1)
 
 
+#######################
+###ПОДГОТОВКА ТАБЛИЦЫ##
+#######################
+
+
+## Считываем файл, сразу сделав все возможные преобразования
+data = read_csv("https://www.dropbox.com/s/erhs9hoj4vhrz0b/eddypro.csv?dl=1",
+               skip = 1, na =c("","NA","-9999","-9999.0"), comment=c("["))
+##Удаляем первую строку таблицы
+data = data[-1,]
+data
+## Смотрим информацию по колонкам
+glimpse(data)
+## Убираем ненужную переменную roll
+data = select(data, -(roll))
+## Преобразуем в факторы переменные типа char, которые содержат повторяющиеся значения:
+data = data %>% mutate_if(is.character, factor)
+## Устраняем проблему со знаками в переменных
+library(stringr)
+names(data) =  str_replace_all(names(data), "[!]","_emph_")
+names(data) = names(data) %>% 
+  str_replace_all("[!]","_emph_") %>% 
+  str_replace_all("[?]","_quest_") %>% 
+  str_replace_all("[*]","_star_") %>% 
+  str_replace_all("[+]","_plus_") %>%
+  str_replace_all("[-]","_minus_") %>%
+  str_replace_all("[@]","_at_") %>%
+  str_replace_all("[$]","_dollar_") %>%
+  str_replace_all("[#]","_hash_") %>%
+  str_replace_all("[/]","_div_") %>%
+  str_replace_all("[%]","_perc_") %>%
+  str_replace_all("[&]","_amp_") %>%
+  str_replace_all("[\\^]","_power_") %>%
+  str_replace_all("[()]","_") 
+glimpse(data)
+## Оставляем только численные данные 
+data_numeric = data[,sapply(data,is.numeric) ]
+
+## Оставляем только летние месяцы
+ar = arrange(data, DOY)
+summer.data = filter(ar, DOY %in% ar$DOY[(ar$DOY>150) & (ar$DOY<240)])
+
+## Создаём обучающую и тестовую выборки
+row_numbers = 1:length(summer.data$date)
+set.seed(655)
+training = sample(row_numbers, floor(length(summer.data$date)*.7))
+test = row_numbers[-training]
+
+teaching_data_unq = summer.data[training,]
+testing_data_unq = summer.data[test,]
+
+
+#############################
+####КОРРЕЛЯЦИОННЫЙ АНАЛИЗ####
+#############################
+cor_td = cor(data_numeric)
+cor_td
+## Избавляемся от всех строк, где есть хоть одно значение NA
+cor_td = cor(drop_na(data_numeric))
+##########
+
+cor_td = cor(drop_na(data_numeric)) %>% as.data.frame %>% select(co2_flux)
+vars = row.names(cor_td)[cor_td$co2_flux^2 > .2] %>% na.exclude
+vars
+##  Собираем все переменные из вектора с именнами переменных в одну формулу
+formula = as.formula(paste("co2_flux~", paste(vars,collapse = "+"), sep=""))
+formula
+
+##Собственно линейная модель
+my.model = lm(co2_flux ~ LE + rand_err_LE  + h2o_flux + rand_err_h2o_flux + 
+                 un_LE + un_co2_flux + un_h2o_flux + h2o_var + w_div_co2_cov, 
+               data = teaching_data_unq)
+summary(my.model)
+
+## Проверка
+pred.model1 = predict(my.model, newdata = testing_data_unq)
+summary(pred.model1)
+
+library(ithir)
+goofcat(observed = data$co2_flux[training], predicted = my.model)
+#Проверка модели на независимой (контрольной) выборке
+V.pred.my.model1 <- predict(my.model, newdata = data[-training, ])
+goofcat(observed = data$co2_flux[-training], predicted = my.model)
